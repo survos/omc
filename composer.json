@@ -1,0 +1,29 @@
+{
+    "name": "survos/omc",
+    "description": "MovieLabs OMC 2.8 DTOs, schema validation and production catalog JSON.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.5",
+        "ext-json": "*",
+        "opis/json-schema": "^2.6",
+        "symfony/validator": "^8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Survos\\Omc\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Survos\\Omc\\Tests\\": "tests/"
+        }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^13.4"
+    },
+    "suggest": {
+        "ext-pdo": "Required for optional SQLite catalog snapshots.",
+        "ext-pdo_sqlite": "Required for optional SQLite catalog snapshots."
+    }
+}
