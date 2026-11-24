@@ -275,6 +275,28 @@ final class WorkingCatalog
         $this->change('wc_entity', $id, ['extra_json' => self::json($extra)]);
     }
 
+    /** Character casting data is an unnormalized RPH extension; other extensions need their domain mutators. */
+    public function setCharacterField(string $id, string $field, mixed $value): void
+    {
+        if (!in_array($field, ['age', 'gender', 'biography', 'relationships', 'voice', 'visualDescription', 'appearance', 'outfits', 'castingStatus'], true)) {
+            throw new \InvalidArgumentException('Unsupported character field.');
+        }
+        $rows = $this->query("SELECT custom_data_json FROM wc_entity WHERE id=? AND entity_type='Character'", [$id]);
+        if (!$rows) {
+            throw new \InvalidArgumentException('Unknown character.');
+        }
+        $custom = self::decode($rows[0]['custom_data_json']);
+        foreach ($custom ?? [] as $extension) {
+            if (($extension->domain ?? null) === 'rph' && ($extension->namespace ?? null) === 'rph.character/1') {
+                $extension->value->$field = $value;
+                $this->change('wc_entity', $id, ['custom_data_json' => self::json($custom)]);
+
+                return;
+            }
+        }
+        throw new \InvalidArgumentException('Unknown character extension.');
+    }
+
     public function renumberScene(string $id, string $displayNumber): void
     {
         $row = $this->query("SELECT shape_json FROM wc_entity WHERE id=? AND entity_type='NarrativeScene'", [$id]);
@@ -294,6 +316,66 @@ final class WorkingCatalog
     }
 
     /** A clip's selected media is explicit; changing it never changes sibling clips. */
+    public function duplicateClip(string $templateId, string $id, string $name, int $start, int $duration, \stdClass $presentation, \stdClass $extras): void
+    {
+        if (!$this->editing) {
+            throw new \LogicException('Mutations require revise().');
+        }
+        $row = $this->query('SELECT * FROM wc_clip WHERE id=?', [$templateId])[0] ?? throw new \InvalidArgumentException('Unknown template clip.');
+        $row['id'] = $id;
+        $row['name'] = $name;
+        $row['start_frame'] = $start;
+        $row['duration_frames'] = $duration;
+        $row['source_start_frame'] = 0;
+        $row['ordinal'] = (int) $this->query('SELECT coalesce(max(ordinal),0)+1 AS n FROM wc_clip WHERE track_id=?', [$row['track_id']])[0]['n'];
+        $row['presentation_json'] = self::json($presentation);
+        $row['extra_json'] = self::json((object) ['extras' => $extras]);
+        $this->insert('wc_clip', $row);
+        $this->changes[] = ['table' => 'wc_clip', 'id' => $id, 'before' => null, 'after' => $row];
+    }
+
+    public function removeClip(string $id): void
+    {
+        if (!$this->editing) {
+            throw new \LogicException('Mutations require revise().');
+        }
+        $row = $this->query('SELECT * FROM wc_clip WHERE id=?', [$id]);
+        if (!$row) {
+            throw new \InvalidArgumentException('Unknown clip.');
+        }
+        $this->db->prepare('DELETE FROM wc_clip WHERE id=?')->execute([$id]);
+        $this->changes[] = ['table' => 'wc_clip', 'id' => $id, 'before' => $row[0], 'after' => null];
+    }
+
+    public function reorderClips(string $trackId): void
+    {
+        if (!$this->editing) {
+            throw new \LogicException('Mutations require revise().');
+        }
+        $rows = $this->query('SELECT id FROM wc_clip WHERE track_id=? ORDER BY start_frame,id', [$trackId]);
+        foreach ($rows as $i => $row) {
+            $this->change('wc_clip', $row['id'], ['ordinal' => -($i + 1)]);
+        }
+        foreach ($rows as $i => $row) {
+            $this->change('wc_clip', $row['id'], ['ordinal' => $i]);
+        }
+    }
+
+    public function setClipPresentation(string $id, \stdClass $presentation): void
+    {
+        $this->change('wc_clip', $id, ['presentation_json' => self::json($presentation)]);
+    }
+
+    public function setTrackDuration(string $id, int $frames): void
+    {
+        $this->change('wc_track', $id, ['duration_frames' => $frames]);
+    }
+
+    public function retimeShot(string $id, int $start, int $duration): void
+    {
+        $this->change('wc_shot', $id, ['start_frame' => $start, 'duration_frames' => $duration], 'entity_id');
+    }
+
     public function selectClipAsset(string $clipId, string $assetId): void
     {
         if (!$this->query('SELECT entity_id FROM wc_media WHERE entity_id=?', [$assetId])) {
